@@ -42,3 +42,6 @@ Alternatively, execute the Wails build command:
 ```bash
 wails build -ldflags="-s -w"
 ```
+
+### 📥 Installation
+The easiest way to get started is to download the latest compiled executable from the **[GitHub Releases](https://github.com/smalloff/goruner/releases)** page.
