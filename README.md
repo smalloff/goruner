@@ -3,6 +3,8 @@
 
 **GoRunner** is a high-performance, cross-platform desktop utility designed to automate Go testing workflows. It monitors your source code in real-time and triggers relevant test suites instantly upon file changes, facilitating a seamless TDD (Test-Driven Development) cycle.
 
+<img width="1005" height="764" alt="image" src="https://github.com/user-attachments/assets/37a30ec1-86be-41f1-9e1a-c43305f8df1c" />
+
 ---
 
 ## 🚀 Key Features
