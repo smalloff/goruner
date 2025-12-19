@@ -19,7 +19,7 @@
 
 ## 🛠 Technical Stack
 
-- **Backend**: Go 1.24.5 (utilizing modern language features, structured concurrency, and context-aware process management).
+- **Backend**: Go 1.24.5
 - **Frontend**: Vue.js 3 (Composition API), Vite, Element Plus.
 - **Bridge**: Wails v2 (High-speed IPC, Go-to-JS bindings).
 - **Watcher**: Low-level events via `github.com/fsnotify/fsnotify`.
