@@ -8,8 +8,6 @@ export function GetDiscoveredTests():Promise<Array<string>>;
 
 export function Quit():Promise<void>;
 
-export function RestoreWindow():Promise<void>;
-
 export function RunTests():Promise<string>;
 
 export function SaveConfig(arg1:config.Config):Promise<void>;

@@ -8,34 +8,43 @@ import (
 	"sync"
 )
 
+// Config represents the application settings.
 type Config struct {
-	Exclusions        []string `json:"exclusions"` // Folders/Files
-	Masks             []string `json:"masks"`      // *.tmp, etc
-	ShowPassed        bool     `json:"show_passed"`
-	AutoWatch         bool     `json:"auto_watch"`
-	ShowNotifications bool     `json:"show_notifications"`
-	NotifyOnlyOnFailure bool    `json:"notify_only_on_failure"`
-	AlwaysOnTop         bool    `json:"always_on_top"`
-	AutoCopyErrors      bool    `json:"auto_copy_errors"`
-	Lang              string   `json:"lang"`       // "ru" or "en"
+	Exclusions          []string `json:"exclusions"`            // List of excluded directories/files
+	Masks               []string `json:"masks"`                 // File glob masks (e.g., *.tmp)
+	ShowPassed          bool     `json:"show_passed"`           // Whether to display successful tests
+	AutoWatch           bool     `json:"auto_watch"`            // Enable automatic test re-run on changes
+	ShowNotifications   bool     `json:"show_notifications"`    // Toggle system notifications
+	NotifyOnlyOnFailure bool     `json:"notify_only_on_failure"` // Only notify when tests fail
+	AlwaysOnTop         bool     `json:"always_on_top"`         // Keep window on top of others
+	AutoCopyErrors      bool     `json:"auto_copy_errors"`      // Automatically copy errors to clipboard
+	Lang                string   `json:"lang"`                  // UI language ("ru" or "en")
 }
 
 var (
-	cfg     *Config
-	mu      sync.RWMutex
-	cfgPath = "go_test_runner.cfg"
+	instance *Config
+	mu       sync.RWMutex
+	cfgPath  = "go_test_runner.cfg"
 )
 
+// Load retrieves the configuration from file or returns defaults.
 func Load() *Config {
+	mu.RLock()
+	if instance != nil {
+		defer mu.RUnlock()
+		return instance
+	}
+	mu.RUnlock()
+
 	mu.Lock()
 	defer mu.Unlock()
 
-	if cfg != nil {
-		return cfg
+	if instance != nil {
+		return instance
 	}
 
-	cfg = &Config{
-		Exclusions:          []string{".git", "node_modules", "vendor", "frontend"},
+	instance = &Config{
+		Exclusions:          []string{".git", "node_modules", "vendor", "frontend", "build"},
 		ShowPassed:          true,
 		AutoWatch:           true,
 		ShowNotifications:   true,
@@ -47,32 +56,32 @@ func Load() *Config {
 
 	data, err := os.ReadFile(cfgPath)
 	if err == nil {
-		_ = json.Unmarshal(data, cfg)
+		_ = json.Unmarshal(data, instance)
 	}
 
-	if cfg.Lang == "" {
-		cfg.Lang = "ru"
+	if instance.Lang == "" {
+		instance.Lang = "ru"
 	}
-	return cfg
+
+	return instance
 }
 
+// Save persists the provided configuration to disk.
 func Save(newCfg *Config) error {
 	mu.Lock()
 	defer mu.Unlock()
-	cfg = newCfg
-	return saveLocked(newCfg)
-}
 
-func saveLocked(c *Config) error {
-	data, _ := json.MarshalIndent(c, "", "  ")
+	instance = newCfg
+	data, err := json.MarshalIndent(instance, "", "  ")
+	if err != nil {
+		return err
+	}
+
 	return os.WriteFile(cfgPath, data, 0644)
 }
 
+// IsExcluded checks if a given path should be ignored based on exclusions and masks.
 func (c *Config) IsExcluded(path string, root string) bool {
-	// Normalize both to handle Windows drive casing
-	root = strings.ToLower(filepath.ToSlash(root))
-	path = strings.ToLower(filepath.ToSlash(path))
-
 	rel, err := filepath.Rel(root, path)
 	if err != nil {
 		return false
@@ -82,22 +91,25 @@ func (c *Config) IsExcluded(path string, root string) bool {
 	}
 
 	cleanPath := filepath.ToSlash(rel)
-	base := filepath.Base(cleanPath)
+	lowerPath := strings.ToLower(cleanPath)
+	segments := strings.Split(lowerPath, "/")
 
 	for _, ex := range c.Exclusions {
-		segments := strings.Split(cleanPath, "/")
+		lowEx := strings.ToLower(ex)
 		for _, s := range segments {
-			if s == ex {
+			if s == lowEx {
 				return true
 			}
 		}
 	}
-	// Simple mask check (glob)
+
+	base := strings.ToLower(filepath.Base(cleanPath))
 	for _, mask := range c.Masks {
-		match, _ := filepath.Match(mask, base)
+		match, _ := filepath.Match(strings.ToLower(mask), base)
 		if match {
 			return true
 		}
 	}
+
 	return false
 }

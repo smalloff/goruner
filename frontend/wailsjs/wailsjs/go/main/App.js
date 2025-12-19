@@ -14,10 +14,6 @@ export function Quit() {
   return window['go']['main']['App']['Quit']();
 }
 
-export function RestoreWindow() {
-  return window['go']['main']['App']['RestoreWindow']();
-}
-
 export function RunTests() {
   return window['go']['main']['App']['RunTests']();
 }

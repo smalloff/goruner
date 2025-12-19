@@ -4,20 +4,18 @@ import (
 	"context"
 	"fmt"
 	"goruner/internal/config"
+	"goruner/internal/notifier"
 	"goruner/internal/tester"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
-	"syscall"
 
 	"github.com/fsnotify/fsnotify"
-	"github.com/getlantern/systray"
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
+// App defines the main Wails application controller.
 type App struct {
 	ctx      context.Context
 	watcher  *fsnotify.Watcher
@@ -25,10 +23,12 @@ type App struct {
 	isPaused bool
 }
 
+// NewApp initializes a new App instance.
 func NewApp() *App {
 	return &App{isPaused: false}
 }
 
+// startup is called by Wails when the application starts.
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	a.initWatcher()
@@ -37,11 +37,9 @@ func (a *App) startup(ctx context.Context) {
 	if cfg.AlwaysOnTop {
 		wailsRuntime.WindowSetAlwaysOnTop(a.ctx, true)
 	}
-
-	// Запуск системного трея в отдельном потоке
-	go systray.Run(a.onTrayReady, a.onTrayExit)
 }
 
+// initWatcher configures the filesystem observer.
 func (a *App) initWatcher() {
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -49,71 +47,59 @@ func (a *App) initWatcher() {
 	}
 	a.watcher = w
 
-	go func() {
-		for {
-			select {
-			case event, ok := <-a.watcher.Events:
-				if !ok {
-					return
-				}
-				a.mu.Lock()
-				paused := a.isPaused
-				a.mu.Unlock()
-
-				if paused {
-					continue
-				}
-
-				cwd, _ := os.Getwd()
-
-				if event.Op&fsnotify.Create != 0 {
-					info, err := os.Stat(event.Name)
-					if err == nil && info.IsDir() {
-						cfg := config.Load()
-						if !cfg.IsExcluded(event.Name, cwd) {
-							_ = a.watcher.Add(event.Name)
-						}
-					}
-				}
-
-				if event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Rename) != 0 {
-					cfg := config.Load()
-					if strings.HasSuffix(strings.ToLower(event.Name), ".go") && cfg.AutoWatch && !cfg.IsExcluded(event.Name, cwd) {
-						fmt.Printf("[Watcher] Triggering test: %s (Op: %v)\n", event.Name, event.Op)
-						wailsRuntime.EventsEmit(a.ctx, "trigger_test", "File changed: "+filepath.Base(event.Name))
-					}
-				}
-			case err, ok := <-a.watcher.Errors:
-				if !ok {
-					return
-				}
-				fmt.Printf("[Watcher] Error: %v\n", err)
-			}
-		}
-	}()
-
+	go a.watchLoop()
 	a.refreshWatcher()
 }
 
-func (a *App) refreshWatcher() {
-	cfg := config.Load()
-	cwd, _ := os.Getwd()
+// watchLoop processes filesystem events.
+func (a *App) watchLoop() {
+	for {
+		select {
+		case event, ok := <-a.watcher.Events:
+			if !ok {
+				return
+			}
+		
+			a.mu.Lock()
+			paused := a.isPaused
+			a.mu.Unlock()
 
-	_ = filepath.Walk(cwd, func(path string, info os.FileInfo, err error) error {
-		if err != nil || !info.IsDir() {
-			return nil
+			if paused {
+				continue
+			}
+
+			cwd, _ := os.Getwd()
+			cfg := config.Load()
+
+			// Auto-watch new directories
+			if event.Op&fsnotify.Create != 0 {
+				info, err := os.Stat(event.Name)
+				if err == nil && info.IsDir() && !cfg.IsExcluded(event.Name, cwd) {
+					_ = a.watcher.Add(event.Name)
+				}
+			}
+
+			// Trigger tests on Go file modifications
+			if event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Rename) != 0 {
+				if strings.HasSuffix(strings.ToLower(event.Name), ".go") && 
+				   cfg.AutoWatch && !cfg.IsExcluded(event.Name, cwd) {
+					wailsRuntime.EventsEmit(a.ctx, "trigger_test", "File changed: "+filepath.Base(event.Name))
+				}
+			}
+		case err, ok := <-a.watcher.Errors:
+			if !ok {
+				return
+			}
+			fmt.Printf("[Watcher] Error: %v\n", err)
 		}
-		if cfg.IsExcluded(path, cwd) {
-			return filepath.SkipDir
-		}
-		_ = a.watcher.Add(path)
-		return nil
-	})
+	}
 }
 
+// RunTests executes Go tests and processes results for the UI.
 func (a *App) RunTests() string {
 	cfg := config.Load()
 	cwd, _ := os.Getwd()
+	
 	out, err := tester.RunTests(a.ctx, cwd, cfg.ShowPassed, cfg.Lang)
 	if err != nil {
 		return fmt.Sprintf("Execution Error: %v\nOutput: %s", err, out)
@@ -123,86 +109,73 @@ func (a *App) RunTests() string {
 
 	if cfg.ShowNotifications {
 		if !cfg.NotifyOnlyOnFailure || isError {
-			a.sendNotification(out, cfg.Lang)
+			a.sendNotify(out, isError, cfg.Lang)
 		}
 	}
 
 	if isError && cfg.AutoCopyErrors {
-		lines := strings.Split(out, "\n")
-		var errorLines []string
-		inErrorSection := false
-		for _, line := range lines {
-					trimmed := strings.TrimSpace(line)
-					if trimmed == "" {
-						if inErrorSection {
-							errorLines = append(errorLines, line)
-						}
-						continue
-					}
-		
-					// Определяем начало или наличие ошибки в строке
-					// Захватываем: # (сборка), FAIL, пути к файлам (.go:), паники и вхождения error
-					isErrorTrigger := strings.HasPrefix(trimmed, "#") || 
-						strings.Contains(line, "--- FAIL") || 
-						strings.Contains(line, "FAIL\t") || 
-						strings.Contains(line, ".go:") || 
-						strings.Contains(strings.ToLower(line), "error:") || 
-						strings.Contains(line, "panic:")
-		
-					if isErrorTrigger {
-						inErrorSection = true
-					} else if strings.Contains(line, "--- PASS") || strings.Contains(line, "PASS\t") || strings.HasPrefix(trimmed, "ok\t") {
-						inErrorSection = false
-					}
-		
-					if inErrorSection {
-						errorLines = append(errorLines, line)
-					}
-				}
-	
-		if len(errorLines) > 0 {
-			_ = wailsRuntime.ClipboardSetText(a.ctx, strings.Join(errorLines, "\n"))
-		}
+		a.copyErrorsToClipboard(out)
 	}
 
 	return out
 }
 
-func (a *App) sendNotification(output string, lang string) {
-	if runtime.GOOS != "windows" {
-		return
-	}
-
+func (a *App) sendNotify(output string, isError bool, lang string) {
 	title := "Go Test Runner"
-	msg := ""
-	isError := strings.Contains(output, "FAIL") || strings.Contains(output, "Error")
-
+	var msg string
 	if lang == "ru" {
-		if isError {
-			msg = "❌ Тесты провалены! Обнаружены ошибки."
-		} else {
-			msg = "✅ Все тесты пройдены успешно!"
-		}
+		if isError { msg = "❌ Тесты провалены!" } else { msg = "✅ Все тесты пройдены!" }
 	} else {
-		if isError {
-			msg = "❌ Tests failed! Errors detected."
-		} else {
-			msg = "✅ All tests passed successfully!"
-		}
+		if isError { msg = "❌ Tests failed!" } else { msg = "✅ All tests passed!" }
 	}
-
-	notification := fmt.Sprintf("[void][System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms'); $obj = New-Object System.Windows.Forms.NotifyIcon; $obj.Icon = [System.Drawing.SystemIcons]::Information; $obj.BalloonTipTitle = '%s'; $obj.BalloonTipText = '%s'; $obj.Visible = $true; $obj.ShowBalloonTip(5000);", title, msg)
-	cmd := exec.Command("powershell", "-NoProfile", "-Command", notification)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	_ = cmd.Run()
+	notifier.Notify(title, msg)
 }
 
+func (a *App) copyErrorsToClipboard(output string) {
+	lines := strings.Split(output, "\n")
+	var errLines []string
+	for _, l := range lines {
+		trimmed := strings.TrimSpace(l)
+		if trimmed == "" {
+			continue
+		}
+
+		isError := strings.HasPrefix(trimmed, "#") ||
+			strings.Contains(l, ".go:") ||
+			strings.Contains(l, "FAIL") ||
+			strings.Contains(strings.ToLower(l), "error:") ||
+			strings.Contains(l, "panic:")
+
+		if isError {
+			errLines = append(errLines, l)
+		}
+	}
+	if len(errLines) > 0 {
+		_ = wailsRuntime.ClipboardSetText(a.ctx, strings.Join(errLines, "\n"))
+	}
+}
+
+func (a *App) refreshWatcher() {
+	cfg := config.Load()
+	cwd, _ := os.Getwd()
+	_ = filepath.Walk(cwd, func(path string, info os.FileInfo, err error) error {
+		if err != nil || !info.IsDir() { return nil }
+		if cfg.IsExcluded(path, cwd) { return filepath.SkipDir }
+		_ = a.watcher.Add(path)
+		return nil
+	})
+}
+
+// --- Wails Bindings ---
+
+// GetDiscoveredTests returns a list of packages that contain tests.
 func (a *App) GetDiscoveredTests() []string {
 	cwd, _ := os.Getwd()
 	pkgs, _ := tester.DiscoverTests(cwd)
 	return pkgs
 }
 
+// TogglePause switches the file watcher's active state.
 func (a *App) TogglePause() bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -210,54 +183,16 @@ func (a *App) TogglePause() bool {
 	return a.isPaused
 }
 
-func (a *App) GetConfig() *config.Config {
-	return config.Load()
-}
+// GetConfig retrieves the current configuration instance.
+func (a *App) GetConfig() *config.Config { return config.Load() }
 
+// SaveConfig updates and persists application settings.
 func (a *App) SaveConfig(cfg config.Config) {
 	_ = config.Save(&cfg)
 	wailsRuntime.WindowSetAlwaysOnTop(a.ctx, cfg.AlwaysOnTop)
 }
 
-// onDomReady вызывается, когда фронтенд готов.
-func (a *App) onDomReady(ctx context.Context) {
-}
-
-// RestoreWindow восстанавливает окно из трея
-func (a *App) RestoreWindow() {
-	wailsRuntime.WindowShow(a.ctx)
-	wailsRuntime.WindowUnminimise(a.ctx)
-	wailsRuntime.WindowSetAlwaysOnTop(a.ctx, config.Load().AlwaysOnTop)
-}
-
-// onTrayReady настраивает меню трея
-func (a *App) onTrayReady() {
-	// Установка иконки (пустая иконка или загруженная)
-	systray.SetTitle("Go Runner")
-	systray.SetTooltip("Go Test Runner")
-
-	mOpen := systray.AddMenuItem("Открыть", "Восстановить окно")
-	systray.AddSeparator()
-	mQuit := systray.AddMenuItem("Выход", "Закрыть приложение")
-
-	go func() {
-		for {
-			select {
-			case <-mOpen.ClickedCh:
-				a.RestoreWindow()
-			case <-mQuit.ClickedCh:
-				a.Quit()
-			}
-		}
-	}()
-}
-
-func (a *App) onTrayExit() {
-	// Очистка при выходе
-}
-
-// Quit завершает работу приложения
+// Quit terminates the application gracefully.
 func (a *App) Quit() {
-	systray.Quit()
 	wailsRuntime.Quit(a.ctx)
 }

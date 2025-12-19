@@ -2,6 +2,7 @@ package tester
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,11 +10,23 @@ import (
 	"syscall"
 )
 
-type TestResult struct {
-	Output  []string
-	Success bool
+// Labels contains localized strings for output headers and summaries.
+var Labels = map[string]map[string]string{
+	"ru": {
+		"pass":   "Успешные тесты:",
+		"fail":   "Ошибки в тестах:",
+		"all_ok": "✅ Все тесты пройдены успешно!",
+		"none":   "ℹ️ Тесты не найдены или вывод пуст.",
+	},
+	"en": {
+		"pass":   "Successful tests:",
+		"fail":   "Errors in tests:",
+		"all_ok": "✅ All tests passed successfully!",
+		"none":   "ℹ️ No tests found or output is empty.",
+	},
 }
 
+// DiscoverTests scans the root directory for packages containing test files.
 func DiscoverTests(root string) ([]string, error) {
 	var packages []string
 	set := make(map[string]bool)
@@ -40,40 +53,46 @@ func DiscoverTests(root string) ([]string, error) {
 	return packages, err
 }
 
+// RunTests executes 'go test' and returns a formatted result string.
 func RunTests(ctx context.Context, path string, showPassed bool, lang string) (string, error) {
 	cmd := exec.CommandContext(ctx, "go", "test", "-v", "./...")
 	cmd.Dir = path
-	// Hide console window on Windows
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		HideWindow: true,
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+
+	output, _ := cmd.CombinedOutput()
+	return ParseTestOutput(string(output), showPassed, lang), nil
+}
+
+// ParseTestOutput parses raw 'go test' output and groups results by status.
+func ParseTestOutput(rawOutput string, showPassed bool, lang string) string {
+	lines := strings.Split(rawOutput, "\n")
+	l, ok := Labels[lang]
+	if !ok {
+		l = Labels["en"]
 	}
 
-	// Capture combined output to ensure we don't miss build errors
-	output, _ := cmd.CombinedOutput()
-	lines := strings.Split(string(output), "\n")
-
-	var passBlocks []string
-	var failBlocks []string
+	var passBlocks, failBlocks []string
 	var currentBlock []string
 
 	for _, line := range lines {
-		trimmedLine := strings.TrimSpace(line)
-		if trimmedLine == "" {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
 			continue
 		}
 		currentBlock = append(currentBlock, line)
-	
-		// Проверяем маркеры успеха: функциональные тесты или итог пакета
+
+		// Check for successful test or package markers
 		isPass := strings.Contains(line, "--- PASS") || 
-			strings.HasPrefix(trimmedLine, "ok\t") || 
-			strings.HasPrefix(trimmedLine, "ok  ") ||
-			trimmedLine == "PASS"
-	
-		// Проверяем маркеры провала
+		          strings.HasPrefix(trimmed, "ok\t") || 
+		          strings.HasPrefix(trimmed, "ok  ") ||
+		          trimmed == "PASS"
+		
+		// Check for failure markers or panics
 		isFail := strings.Contains(line, "--- FAIL") || 
-			strings.Contains(line, "FAIL\t") || 
-			strings.HasPrefix(trimmedLine, "FAIL")
-	
+		          strings.Contains(line, "FAIL\t") || 
+		          strings.HasPrefix(trimmed, "FAIL") ||
+		          strings.HasPrefix(trimmed, "panic:")
+
 		if isPass {
 			passBlocks = append(passBlocks, strings.Join(currentBlock, "\n"))
 			currentBlock = nil
@@ -83,50 +102,30 @@ func RunTests(ctx context.Context, path string, showPassed bool, lang string) (s
 		}
 	}
 
-	// Если остался текст, не привязанный к конкретным PASS/FAIL (например, ошибки компиляции)
+	// Handle remaining output (e.g., build errors)
 	if len(currentBlock) > 0 {
-		remaining := strings.TrimSpace(strings.Join(currentBlock, "\n"))
-		if remaining != "" {
-			// Если в остатке есть явные признаки успеха, не кладем в ошибки
-			if !strings.Contains(remaining, "ok\t") && !strings.Contains(remaining, "PASS") {
-				failBlocks = append(failBlocks, remaining)
+		content := strings.TrimSpace(strings.Join(currentBlock, "\n"))
+		if content != "" {
+			if strings.Contains(content, "PASS") || strings.Contains(content, "ok\t") || strings.Contains(content, "ok  ") {
+				passBlocks = append(passBlocks, content)
 			} else {
-				passBlocks = append(passBlocks, remaining)
+				failBlocks = append(failBlocks, content)
 			}
 		}
 	}
 
-	var finalOutput strings.Builder
-	
-	labels := map[string]map[string]string{
-		"ru": {"pass": "Успешные тесты:", "fail": "Ошибки в тестах:", "all_ok": "✅ Все тесты пройдены успешно!", "none": "ℹ️ Тесты не найдены или вывод пуст."},
-		"en": {"pass": "Successful tests:", "fail": "Errors in tests:", "all_ok": "✅ All tests passed successfully!", "none": "ℹ️ No tests found or output is empty."},
+	var res strings.Builder
+	if showPassed && len(passBlocks) > 0 {
+		res.WriteString(fmt.Sprintf("%s\n%s\n\n", l["pass"], strings.Join(passBlocks, "\n")))
 	}
-	l := labels[lang]
-	if l == nil { l = labels["en"] }
-	
-	if len(passBlocks) > 0 && showPassed {
-		finalOutput.WriteString(l["pass"] + "\n")
-		for _, b := range passBlocks {
-			finalOutput.WriteString(b + "\n")
-		}
-		finalOutput.WriteString("\n")
-	}
-	
-	if len(failBlocks) == 0 {
-		if len(passBlocks) > 0 {
-			finalOutput.WriteString(l["all_ok"] + "\n")
-		} else {
-			finalOutput.WriteString(l["none"] + "\n")
-		}
+
+	if len(failBlocks) > 0 {
+		res.WriteString(fmt.Sprintf("%s\n\n%s\n", l["fail"], strings.Join(failBlocks, "\n")))
+	} else if len(passBlocks) > 0 {
+		res.WriteString(l["all_ok"] + "\n")
 	} else {
-		finalOutput.WriteString(l["fail"] + "\n\n")
-		for _, b := range failBlocks {
-			if strings.TrimSpace(b) != "" {
-				finalOutput.WriteString(b + "\n")
-			}
-		}
+		res.WriteString(l["none"] + "\n")
 	}
 
-	return finalOutput.String(), nil
+	return res.String()
 }
