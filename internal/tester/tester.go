@@ -3,6 +3,7 @@ package tester
 import (
 	"context"
 	"fmt"
+	"goruner/internal/config"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -30,9 +31,21 @@ var Labels = map[string]map[string]string{
 func DiscoverTests(root string) ([]string, error) {
 	var packages []string
 	set := make(map[string]bool)
+	cfg := config.Load()
 
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
+		if err != nil {
+			return nil
+		}
+
+		if cfg.IsExcluded(path, root) {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		if info.IsDir() {
 			return nil
 		}
 		if strings.HasSuffix(info.Name(), "_test.go") {
@@ -53,10 +66,21 @@ func DiscoverTests(root string) ([]string, error) {
 	return packages, err
 }
 
-// RunTests executes 'go test' and returns a formatted result string.
-func RunTests(ctx context.Context, path string, showPassed bool, lang string) (string, error) {
-	cmd := exec.CommandContext(ctx, "go", "test", "-v", "./...")
-	cmd.Dir = path
+// RunTests executes 'go test' for specific packages and returns a formatted result string.
+func RunTests(ctx context.Context, root string, packages []string, showPassed bool, lang string) (string, error) {
+	if len(packages) == 0 {
+		l, ok := Labels[lang]
+		if !ok {
+			l = Labels["en"]
+		}
+		return l["none"], nil
+	}
+
+	args := []string{"test", "-v"}
+	args = append(args, packages...)
+
+	cmd := exec.CommandContext(ctx, "go", args...)
+	cmd.Dir = root
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 
 	output, _ := cmd.CombinedOutput()
@@ -102,14 +126,20 @@ func ParseTestOutput(rawOutput string, showPassed bool, lang string) string {
 		}
 	}
 
-	// Handle remaining output (e.g., build errors)
+	// Handle remaining output (e.g., build errors or trailing logs)
 	if len(currentBlock) > 0 {
 		content := strings.TrimSpace(strings.Join(currentBlock, "\n"))
 		if content != "" {
-			if strings.Contains(content, "PASS") || strings.Contains(content, "ok\t") || strings.Contains(content, "ok  ") {
-				passBlocks = append(passBlocks, content)
-			} else {
+			lowerContent := strings.ToLower(content)
+			isActualError := strings.Contains(content, "FAIL") || 
+			                 strings.Contains(content, "panic:") || 
+			                 strings.HasPrefix(content, "#") ||
+			                 strings.Contains(lowerContent, "error:")
+	
+			if isActualError {
 				failBlocks = append(failBlocks, content)
+			} else {
+				passBlocks = append(passBlocks, content)
 			}
 		}
 	}

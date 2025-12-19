@@ -155,19 +155,17 @@ const formattedOutput = computed(() => {
   
     const trimmed = line.trim();
     let type = 'default';
-    
-    const isError = trimmed.startsWith('#') || 
-                    line.includes('FAIL') || 
-                    line.includes('.go:') || 
-                    line.toLowerCase().includes('error:') || 
-                    line.includes('panic:') ||
-                    (inErrorSection && trimmed && !line.includes(errMarker));
-  
-    if (isError) {
+
+    const isCritical = line.includes('FAIL') || 
+                       line.includes('panic:') || 
+                       trimmed.startsWith('#');
+
+    if (isCritical || (inErrorSection && trimmed && !line.includes(errMarker))) {
       type = 'error-text';
-    } else if (line.includes('PASS') || line.includes('✅') || trimmed.startsWith('ok')) {
+    } else if (line.includes('PASS') || line.includes('✅') || (trimmed.startsWith('ok') && !inErrorSection)) {
       type = 'success-text';
     }
+    
     return { text: line, type };
   });
 });

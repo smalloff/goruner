@@ -99,8 +99,13 @@ func (a *App) watchLoop() {
 func (a *App) RunTests() string {
 	cfg := config.Load()
 	cwd, _ := os.Getwd()
+
+	pkgs, err := tester.DiscoverTests(cwd)
+	if err != nil {
+		return fmt.Sprintf("Discovery Error: %v", err)
+	}
 	
-	out, err := tester.RunTests(a.ctx, cwd, cfg.ShowPassed, cfg.Lang)
+	out, err := tester.RunTests(a.ctx, cwd, pkgs, cfg.ShowPassed, cfg.Lang)
 	if err != nil {
 		return fmt.Sprintf("Execution Error: %v\nOutput: %s", err, out)
 	}
