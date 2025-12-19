@@ -1,0 +1,134 @@
+output_file: project_context.xml
+output_format: json
+presets:
+    - name: Default
+      open_files:
+        - build.cmd
+        - build_css.cmd
+        - cmd/server/build.cmd
+        - cmd/server/main.go
+        - go.mod
+        - input.css
+        - internal/database/database.go
+        - internal/handlers/handlers.go
+        - internal/handlers/middleware.go
+        - internal/models/models.go
+        - internal/tagcache/cache.go
+        - templates/about.html
+        - templates/admin.html
+        - templates/base.html
+        - templates/base_admin.html
+        - templates/cart.html
+        - templates/index.html
+        - templates/login.html
+        - templates/product.html
+      always_include: []
+      ignore_tree:
+        - lucky_vibe.yaml
+        - .git
+        - .gitignore
+        - .vscode
+        - README.md
+        - cmd/server/server.exe
+        - cmd/server/store.db
+        - cmd/server/uploads
+        - go.sum
+        - project_context.json
+        - store.db
+        - store.db-shm
+        - store.db-wal
+        - uploads
+        - store.exe
+        - tailwindcss.exe
+      no_symbol_files:
+        - internal/template/pongo2min/buffer.go
+        - internal/template/pongo2min/hash.go
+        - internal/template/pongo2min/html.go
+        - internal/template/pongo2min/parse/hash.go
+        - internal/template/pongo2min/parse/lex.go
+        - internal/template/pongo2min/parse/util.go
+      no_comment_files: []
+      no_string_files: []
+      note: Генерируй ответ строго в формате XML. Ты сеньор Developer, стэк go 1.24.5. Придерживайся строгой архитектуры, лучшим практикам и чистому коду. Комментарии и код оформляй профессионально. Соблюдай протокол общения в виде XML и используй инструкцию для общения.
+      instruction: |-
+        СТРОГО ЗАПРЕЩАЕТСЯ РЕДАКТИРОВАТЬ ФАЙЛЫ, БЕЗ ПОЛНОГО ИСХОДНОГО КОДА! ИСХОДНЫЙ КОД ЗАПРОСИ В СЕКЦИИ <need_files> НАПИШИ В ДИАЛОГЕ WARNING О НЕОБХОДИМОСТИ ФАЙЛОВ. СМОТРИ ФОРМАТ ОТВЕТА!
+
+        ПРИНЦИПЫ ИЗМЕНЕНИЯ КОДА:
+        1. Если нужно внести небольшие правки (добавить функцию, изменить условие, поправить импорты) — ИСПОЛЬЗУЙ ТЕГ <edit>. Не перезаписывай файл целиком ради пары строк!
+        2. В теге <search> указывай достаточно уникального контекста (3-5 строк), чтобы блок кода был найден в файле однозначно. Код поиска, в файле должен быть уникальным!
+        3. Используй тег <file> (полная перезапись) ТОЛЬКО для создания новых файлов или если меняется более 50% содержимого текущего файла.
+      output_format: json
+      include_symbols: true
+      include_tree: true
+      include_comments: false
+      include_strings: false
+      execute_commands: true
+    - name: json test
+      open_files:
+        - app.go
+        - config.yaml
+        - frontend/index.html
+        - frontend/src/App.vue
+        - frontend/src/components/AppTooltip.vue
+        - frontend/src/components/CodeEditor.vue
+        - frontend/src/components/ContextMenu.vue
+        - frontend/src/components/FileTree.vue
+        - frontend/src/components/PlanFileTree.vue
+        - frontend/src/main.js
+        - frontend/src/style.css
+        - go.mod
+        - main.go
+        - parser.go
+        - structured_output_schema.json
+        - system_instruction_example.txt
+        - test_data/app.js
+        - test_data/complex_query.sql
+        - test_data/main.go
+        - test_data/script.py
+        - test_data/template.html
+      always_include: []
+      ignore_tree:
+        - lucky_vibe.yaml
+        - .git
+        - frontend/node_modules
+        - frontend/dist
+        - build
+        - .vscode
+        - .gitignore
+        - README.md
+        - build.bat
+        - frontend/wailsjs
+        - lang_files
+        - lucky_vibe.exe
+        - go.sum
+        - project_context.xml
+        - frontend/npm
+        - frontend/package-lock.json
+        - frontend/package.json.md5
+        - frontend/postcss.config.js
+        - frontend/.gitignore
+        - dev.cmd
+      no_symbol_files: []
+      no_comment_files: []
+      no_string_files: []
+      note: Ты — опытный разработчик. Твоя задача — анализировать код и предлагать изменения в формате JSON.
+      instruction: |-
+        ПРАВИЛА ГЕНЕРАЦИИ (JSON):
+
+        1. **actions**: Список действий.
+           - Используй `type: "edit"` для небольших правок. Укажи `search` (точный блок кода для поиска) и `replace` (на что заменить).
+           - Используй `type: "modify"` или `"create"` для полной перезаписи файла или создания нового. Укажи полное содержимое в `content`.
+           - Используй `type: "delete"` для удаления файла.
+           - Используй `type: "move"` для переименования/перемещения. Укажи `src` (старый путь) и `path` (новый путь).
+
+        2. **need_files**: Если тебе не хватает файлов для понимания контекста, перечисли их пути здесь.
+
+        3. **report**: Кратко опиши, что ты сделал.
+
+        ВНИМАНИЕ! Перед началом изменения существующих файлов, всегда запрашивай актуальные файлы для контекста, чтобы не испортить существующий код!
+      output_format: json
+      include_symbols: true
+      include_tree: true
+      include_comments: false
+      include_strings: false
+      execute_commands: true
