@@ -8,7 +8,6 @@ export namespace config {
 	    show_notifications: boolean;
 	    notify_only_on_failure: boolean;
 	    always_on_top: boolean;
-	    minimize_to_tray: boolean;
 	    auto_copy_errors: boolean;
 	    lang: string;
 	
@@ -25,7 +24,6 @@ export namespace config {
 	        this.show_notifications = source["show_notifications"];
 	        this.notify_only_on_failure = source["notify_only_on_failure"];
 	        this.always_on_top = source["always_on_top"];
-	        this.minimize_to_tray = source["minimize_to_tray"];
 	        this.auto_copy_errors = source["auto_copy_errors"];
 	        this.lang = source["lang"];
 	    }

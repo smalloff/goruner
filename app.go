@@ -32,7 +32,7 @@ func NewApp() *App {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	a.initWatcher()
-	
+
 	cfg := config.Load()
 	if cfg.AlwaysOnTop {
 		wailsRuntime.WindowSetAlwaysOnTop(a.ctx, true)
@@ -65,7 +65,7 @@ func (a *App) initWatcher() {
 				}
 
 				cwd, _ := os.Getwd()
-				
+
 				if event.Op&fsnotify.Create != 0 {
 					info, err := os.Stat(event.Name)
 					if err == nil && info.IsDir() {
@@ -75,7 +75,7 @@ func (a *App) initWatcher() {
 						}
 					}
 				}
-				
+
 				if event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Rename) != 0 {
 					cfg := config.Load()
 					if strings.HasSuffix(strings.ToLower(event.Name), ".go") && cfg.AutoWatch && !cfg.IsExcluded(event.Name, cwd) {
@@ -98,7 +98,7 @@ func (a *App) initWatcher() {
 func (a *App) refreshWatcher() {
 	cfg := config.Load()
 	cwd, _ := os.Getwd()
-	
+
 	_ = filepath.Walk(cwd, func(path string, info os.FileInfo, err error) error {
 		if err != nil || !info.IsDir() {
 			return nil
@@ -120,17 +120,51 @@ func (a *App) RunTests() string {
 	}
 
 	isError := strings.Contains(out, "FAIL") || strings.Contains(out, "Error")
-	
+
 	if cfg.ShowNotifications {
 		if !cfg.NotifyOnlyOnFailure || isError {
 			a.sendNotification(out, cfg.Lang)
 		}
 	}
-	
+
 	if isError && cfg.AutoCopyErrors {
-		_ = wailsRuntime.ClipboardSetText(a.ctx, out)
-	}
+		lines := strings.Split(out, "\n")
+		var errorLines []string
+		inErrorSection := false
+		for _, line := range lines {
+					trimmed := strings.TrimSpace(line)
+					if trimmed == "" {
+						if inErrorSection {
+							errorLines = append(errorLines, line)
+						}
+						continue
+					}
+		
+					// Определяем начало или наличие ошибки в строке
+					// Захватываем: # (сборка), FAIL, пути к файлам (.go:), паники и вхождения error
+					isErrorTrigger := strings.HasPrefix(trimmed, "#") || 
+						strings.Contains(line, "--- FAIL") || 
+						strings.Contains(line, "FAIL\t") || 
+						strings.Contains(line, ".go:") || 
+						strings.Contains(strings.ToLower(line), "error:") || 
+						strings.Contains(line, "panic:")
+		
+					if isErrorTrigger {
+						inErrorSection = true
+					} else if strings.Contains(line, "--- PASS") || strings.Contains(line, "PASS\t") || strings.HasPrefix(trimmed, "ok\t") {
+						inErrorSection = false
+					}
+		
+					if inErrorSection {
+						errorLines = append(errorLines, line)
+					}
+				}
 	
+		if len(errorLines) > 0 {
+			_ = wailsRuntime.ClipboardSetText(a.ctx, strings.Join(errorLines, "\n"))
+		}
+	}
+
 	return out
 }
 
@@ -157,11 +191,11 @@ func (a *App) sendNotification(output string, lang string) {
 		}
 	}
 
-		notification := fmt.Sprintf("[void][System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms'); $obj = New-Object System.Windows.Forms.NotifyIcon; $obj.Icon = [System.Drawing.SystemIcons]::Information; $obj.BalloonTipTitle = '%s'; $obj.BalloonTipText = '%s'; $obj.Visible = $true; $obj.ShowBalloonTip(5000);", title, msg)
-		cmd := exec.Command("powershell", "-NoProfile", "-Command", notification)
-		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-		_ = cmd.Run()
-	}
+	notification := fmt.Sprintf("[void][System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms'); $obj = New-Object System.Windows.Forms.NotifyIcon; $obj.Icon = [System.Drawing.SystemIcons]::Information; $obj.BalloonTipTitle = '%s'; $obj.BalloonTipText = '%s'; $obj.Visible = $true; $obj.ShowBalloonTip(5000);", title, msg)
+	cmd := exec.Command("powershell", "-NoProfile", "-Command", notification)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	_ = cmd.Run()
+}
 
 func (a *App) GetDiscoveredTests() []string {
 	cwd, _ := os.Getwd()
@@ -185,14 +219,8 @@ func (a *App) SaveConfig(cfg config.Config) {
 	wailsRuntime.WindowSetAlwaysOnTop(a.ctx, cfg.AlwaysOnTop)
 }
 
-// onDomReady вызывается, когда фронтенд готов. Мы подписываемся на события окна.
+// onDomReady вызывается, когда фронтенд готов.
 func (a *App) onDomReady(ctx context.Context) {
-	wailsRuntime.EventsOn(ctx, "wails:window:minimize", func(optionalData ...interface{}) {
-		cfg := config.Load()
-		if cfg.MinimizeToTray {
-			wailsRuntime.WindowHide(ctx)
-		}
-	})
 }
 
 // RestoreWindow восстанавливает окно из трея
@@ -212,14 +240,16 @@ func (a *App) onTrayReady() {
 	systray.AddSeparator()
 	mQuit := systray.AddMenuItem("Выход", "Закрыть приложение")
 
-	for {
-		select {
-		case <-mOpen.ClickedCh:
-			a.RestoreWindow()
-		case <-mQuit.ClickedCh:
-			a.Quit()
+	go func() {
+		for {
+			select {
+			case <-mOpen.ClickedCh:
+				a.RestoreWindow()
+			case <-mQuit.ClickedCh:
+				a.Quit()
+			}
 		}
-	}
+	}()
 }
 
 func (a *App) onTrayExit() {

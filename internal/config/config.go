@@ -16,7 +16,6 @@ type Config struct {
 	ShowNotifications bool     `json:"show_notifications"`
 	NotifyOnlyOnFailure bool    `json:"notify_only_on_failure"`
 	AlwaysOnTop         bool    `json:"always_on_top"`
-	MinimizeToTray      bool    `json:"minimize_to_tray"`
 	AutoCopyErrors      bool    `json:"auto_copy_errors"`
 	Lang              string   `json:"lang"`       // "ru" or "en"
 }
@@ -35,25 +34,27 @@ func Load() *Config {
 		return cfg
 	}
 
-	data, err := os.ReadFile(cfgPath)
-	if err != nil {
-			cfg = &Config{
-				Exclusions: []string{".git", "node_modules", "vendor", "frontend"},
-				ShowPassed:        true,
-							AutoWatch:         true,
-							ShowNotifications: true,
-							Lang:              "ru",
-			}
-		_ = saveLocked(cfg)
-		return cfg
+	cfg = &Config{
+		Exclusions:          []string{".git", "node_modules", "vendor", "frontend"},
+		ShowPassed:          true,
+		AutoWatch:           true,
+		ShowNotifications:   true,
+		NotifyOnlyOnFailure: false,
+		AlwaysOnTop:         false,
+		AutoCopyErrors:      false,
+		Lang:                "ru",
 	}
 
-		_ = json.Unmarshal(data, &cfg)
-		if cfg.Lang == "" {
-			cfg.Lang = "ru"
-		}
-		return cfg
+	data, err := os.ReadFile(cfgPath)
+	if err == nil {
+		_ = json.Unmarshal(data, cfg)
 	}
+
+	if cfg.Lang == "" {
+		cfg.Lang = "ru"
+	}
+	return cfg
+}
 
 func Save(newCfg *Config) error {
 	mu.Lock()

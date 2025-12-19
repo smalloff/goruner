@@ -80,9 +80,6 @@
           <el-checkbox v-model="config.always_on_top">{{ t('alwaysOnTop') }}</el-checkbox>
         </el-form-item>
         <el-form-item>
-          <el-checkbox v-model="config.minimize_to_tray">{{ t('minimizeToTray') }}</el-checkbox>
-        </el-form-item>
-        <el-form-item>
           <el-checkbox v-model="config.auto_copy_errors">{{ t('autoCopyErrors') }}</el-checkbox>
         </el-form-item>
         <el-button type="success" @click="saveSettings">{{ t('saveBtn') }}</el-button>
@@ -101,7 +98,17 @@ const activeTab = ref('console')
 const output = ref('')
 const loading = ref(false)
 const isPaused = ref(false)
-const config = ref({ exclusions: [], show_passed: true, auto_watch: true, lang: 'ru' })
+const config = ref({
+  exclusions: [],
+  show_passed: true,
+  auto_watch: true,
+  show_notifications: true,
+  notify_only_on_failure: false,
+  always_on_top: false,
+  minimize_to_tray: false,
+  auto_copy_errors: false,
+  lang: 'ru'
+})
 const exclusionText = ref('')
 const consoleRef = ref(null)
 
@@ -111,7 +118,7 @@ const i18n = {
     copyTip: 'Скопировать ошибки', restartTip: 'Перезапустить тесты', resumeTip: 'Возобновить', pauseTip: 'Пауза',
     langTip: 'Сменить язык', exclusionsLabel: 'Исключения (по одному в строке)', showPassed: 'Показывать успешные тесты',
     autoWatch: 'Автоматически перезапускать тесты', showNotifications: 'Показывать уведомления', notifyOnlyOnFailure: 'Только при ошибках', 
-    alwaysOnTop: 'Поверх всех окон', minimizeToTray: 'Сворачивать в трей', autoCopyErrors: 'Автокопирование ошибок', saveBtn: 'Сохранить настройки', copied: 'Ошибки скопированы в буфер',
+    alwaysOnTop: 'Поверх всех окон', autoCopyErrors: 'Автокопирование ошибок', saveBtn: 'Сохранить настройки', copied: 'Ошибки скопированы в буфер',
       running: 'Запуск тестов...', waiting: 'Ожидание изменений...'
     },
     en: {
@@ -119,7 +126,7 @@ const i18n = {
       copyTip: 'Copy errors', restartTip: 'Restart tests', resumeTip: 'Resume', pauseTip: 'Pause',
       langTip: 'Change language', exclusionsLabel: 'Exclusions (one per line)', showPassed: 'Show successful tests',
       autoWatch: 'Automatically restart tests', showNotifications: 'Show notifications', notifyOnlyOnFailure: 'Only on failure', 
-      alwaysOnTop: 'Always on Top', minimizeToTray: 'Minimize to Tray', autoCopyErrors: 'Auto-copy Errors', saveBtn: 'Save Settings', copied: 'Errors copied to clipboard',
+      alwaysOnTop: 'Always on Top', autoCopyErrors: 'Auto-copy Errors', saveBtn: 'Save Settings', copied: 'Errors copied to clipboard',
       running: 'Running tests...', waiting: 'Waiting for changes...'
     }
 };
@@ -145,11 +152,20 @@ const formattedOutput = computed(() => {
   return output.value.split('\n').map(line => {
     if (line.includes(errMarker)) inErrorSection = true;
     if (line.includes(successMarker)) inErrorSection = false;
-
+  
+    const trimmed = line.trim();
     let type = 'default';
-    if (line.includes('FAIL') || line.includes('error:') || (inErrorSection && line.trim() && !line.includes(errMarker))) {
+    
+    const isError = trimmed.startsWith('#') || 
+                    line.includes('FAIL') || 
+                    line.includes('.go:') || 
+                    line.toLowerCase().includes('error:') || 
+                    line.includes('panic:') ||
+                    (inErrorSection && trimmed && !line.includes(errMarker));
+  
+    if (isError) {
       type = 'error-text';
-    } else if (line.includes('PASS') || line.includes('✅')) {
+    } else if (line.includes('PASS') || line.includes('✅') || trimmed.startsWith('ok')) {
       type = 'success-text';
     }
     return { text: line, type };
@@ -199,6 +215,7 @@ onMounted(async () => {
     config.value = await GetConfig()
     output.value = t('waiting')
     exclusionText.value = (config.value.exclusions || []).join('\n')
+    
     EventsOn('trigger_test', (msg) => {
       if (!loading.value) {
         output.value = `[${new Date().toLocaleTimeString()}] ${msg}...\n` + output.value
