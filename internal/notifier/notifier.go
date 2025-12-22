@@ -25,7 +25,9 @@ func Notify(title, message string) {
 			"$obj.BalloonTipTitle = '%s'; "+
 			"$obj.BalloonTipText = '%s'; "+
 			"$obj.Visible = $true; "+
-			"$obj.ShowBalloonTip(5000);",
+			"$obj.ShowBalloonTip(5000); "+
+						"Start-Sleep -s 7; "+
+						"$obj.Dispose();",
 	safeTitle, safeMsg)
 
 	cmd := exec.Command("powershell", "-NoProfile", "-Command", script)

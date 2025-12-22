@@ -59,7 +59,7 @@ func (a *App) watchLoop() {
 			if !ok {
 				return
 			}
-		
+
 			a.mu.Lock()
 			paused := a.isPaused
 			a.mu.Unlock()
@@ -81,8 +81,8 @@ func (a *App) watchLoop() {
 
 			// Trigger tests on Go file modifications
 			if event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Rename) != 0 {
-				if strings.HasSuffix(strings.ToLower(event.Name), ".go") && 
-				   cfg.AutoWatch && !cfg.IsExcluded(event.Name, cwd) {
+				if strings.HasSuffix(strings.ToLower(event.Name), ".go") &&
+					cfg.AutoWatch && !cfg.IsExcluded(event.Name, cwd) {
 					wailsRuntime.EventsEmit(a.ctx, "trigger_test", "File changed: "+filepath.Base(event.Name))
 				}
 			}
@@ -104,19 +104,19 @@ func (a *App) RunTests() string {
 	if err != nil {
 		return fmt.Sprintf("Discovery Error: %v", err)
 	}
-	
+
 	out, err := tester.RunTests(a.ctx, cwd, pkgs, cfg.ShowPassed, cfg.Lang)
 	if err != nil {
 		return fmt.Sprintf("Execution Error: %v\nOutput: %s", err, out)
 	}
 
-	isError := strings.Contains(out, "FAIL") || strings.Contains(out, "Error")
+	isError := tester.IsFailureOutput(out, cfg.Lang)
 
 	if cfg.ShowNotifications {
-		if !cfg.NotifyOnlyOnFailure || isError {
-			a.sendNotify(out, isError, cfg.Lang)
+			if !cfg.NotifyOnlyOnFailure || isError {
+				go a.sendNotify(out, isError, cfg.Lang)
+			}
 		}
-	}
 
 	if isError && cfg.AutoCopyErrors {
 		a.copyErrorsToClipboard(out)
@@ -129,9 +129,17 @@ func (a *App) sendNotify(output string, isError bool, lang string) {
 	title := "Go Test Runner"
 	var msg string
 	if lang == "ru" {
-		if isError { msg = "❌ Тесты провалены!" } else { msg = "✅ Все тесты пройдены!" }
+		if isError {
+			msg = "❌ Тесты провалены!"
+		} else {
+			msg = "✅ Все тесты пройдены!"
+		}
 	} else {
-		if isError { msg = "❌ Tests failed!" } else { msg = "✅ All tests passed!" }
+		if isError {
+			msg = "❌ Tests failed!"
+		} else {
+			msg = "✅ All tests passed!"
+		}
 	}
 	notifier.Notify(title, msg)
 }
@@ -164,8 +172,12 @@ func (a *App) refreshWatcher() {
 	cfg := config.Load()
 	cwd, _ := os.Getwd()
 	_ = filepath.Walk(cwd, func(path string, info os.FileInfo, err error) error {
-		if err != nil || !info.IsDir() { return nil }
-		if cfg.IsExcluded(path, cwd) { return filepath.SkipDir }
+		if err != nil || !info.IsDir() {
+			return nil
+		}
+		if cfg.IsExcluded(path, cwd) {
+			return filepath.SkipDir
+		}
 		_ = a.watcher.Add(path)
 		return nil
 	})

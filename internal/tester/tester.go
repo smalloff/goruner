@@ -158,4 +158,13 @@ func ParseTestOutput(rawOutput string, showPassed bool, lang string) string {
 	}
 
 	return res.String()
-}
+	}
+
+	// IsFailureOutput checks if the formatted output contains any failure sections.
+	func IsFailureOutput(output, lang string) bool {
+		l, ok := Labels[lang]
+		if !ok {
+			l = Labels["en"]
+		}
+		return strings.Contains(output, l["fail"])
+	}
